@@ -16,7 +16,7 @@ public class ServiceConfiguration extends AbstractCouchbaseConfiguration {
 
     @Override
     protected List<String> getBootstrapHosts() {
-        return Arrays.asList("localhost");
+        return Arrays.asList("10.112.195.101");
     }
 
     @Override
