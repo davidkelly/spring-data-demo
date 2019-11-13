@@ -2,10 +2,14 @@ package com.example.demo;
 
 import com.couchbase.client.java.Cluster;
 import com.couchbase.client.java.Collection;
+import com.couchbase.client.java.json.JsonObject;
 import com.couchbase.transactions.TransactionGetResult;
 import com.couchbase.transactions.Transactions;
 import com.couchbase.transactions.error.TransactionFailed;
 import com.couchbase.transactions.log.LogDefer;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -117,17 +121,27 @@ public class DemoApplication {
 		List<Airport> returnVal = new ArrayList<Airport>();
 		try {
 			getTransactions().run( (ctx) -> {
+
 				TransactionGetResult a1Result = ctx.get(collection, id1);
 				TransactionGetResult a2Result = ctx.get(collection, id2);
 				Airport a1 = a1Result.contentAs(Airport.class);
 				Airport a2 = a2Result.contentAs(Airport.class);
+
 				String temp = a2.getCity();
 				a2.setCity(a1.getCity());
 				a1.setCity(temp);
-				ctx.replace(a1Result, a1);
-				ctx.replace(a2Result, a2);
-				returnVal.add(ctx.get(collection, id1).contentAs(Airport.class));
-				returnVal.add(ctx.get(collection, id2).contentAs(Airport.class));
+
+				// NOTE: we have not integrated transactions into spring-data yet, so we need to manually
+				// add the _class to the objects we write using ctx.  This is only temporary, until we support
+				// transactions in the spring-data way...
+				ctx.replace(a1Result, convertAirportForWrite(a1));
+				ctx.replace(a2Result, convertAirportForWrite(a2));
+
+				// NOTE: we return an airport, but without the generated key field as, until we
+				// properly integrate transactions, we need to convert this.  I didn't write that
+				// hack in here.  We could have done this above as well
+				returnVal.add(convertToAirport(ctx.get(collection, id1)));
+				returnVal.add(convertToAirport(ctx.get(collection, id2)));
 			});
 			return returnVal;
 		} catch (TransactionFailed e ) {
@@ -138,6 +152,41 @@ public class DemoApplication {
 			return Arrays.asList();
 		}
 	}
+
+	// HACK until we integrate transactions into spring.  Reading data from the transactions ctx
+	// will not populate the @Generated id.  So we do so here.  Soon we will integrate transactions
+	// and such hacks will not be necessary
+	private Airport convertToAirport(TransactionGetResult res) {
+		JsonObject obj = res.contentAs(JsonObject.class);
+		// pop the key in there
+		obj.put("key", res.id());
+		ObjectMapper mapper = new ObjectMapper();
+		mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+		try {
+			return mapper.readValue(obj.toString(), Airport.class);
+		} catch(JsonProcessingException e) {
+			logger.error("couldn't convert " + obj.toString() + " to Airport : " + e.getMessage());
+			return null;
+		}
+	}
+
+	// HACK until we integrate transactions into spring.  Writing data you read from the transaction
+	// ctx will result in it stripping out the _class in particular (and adding key in this case, as it
+	// is generated).  So this hack prevents that for now.
+	private JsonObject convertAirportForWrite(Airport airport) {
+		ObjectMapper mapper = new ObjectMapper();
+		try {
+			JsonObject obj = JsonObject.fromJson(mapper.writeValueAsString(airport));
+			obj.put("_class", airport.getClass().getCanonicalName());
+			// now remove key as well
+			obj.removeKey("key");
+			return obj;
+		} catch(JsonProcessingException e) {
+			logger.error("issue converting airport " + airport.toString() + ": error: " + e.getMessage());
+			return JsonObject.empty();
+		}
+	}
+
 	public static void main(String[] args) {
 		SpringApplication.run(DemoApplication.class, args);
 	}
