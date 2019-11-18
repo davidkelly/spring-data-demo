@@ -23,7 +23,7 @@ public class ServiceConfiguration extends AbstractCouchbaseConfiguration {
 
     @Override
     protected List<String> getBootstrapHosts() {
-        return Collections.singletonList("10.112.195.101");
+        return Collections.singletonList("localhost");
     }
 
     @Override
