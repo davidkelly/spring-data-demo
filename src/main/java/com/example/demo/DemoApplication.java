@@ -24,7 +24,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -56,16 +56,10 @@ public class DemoApplication {
 	@Autowired
 	private Collection collection;
 
-	Transactions transactions = null;
+	@Autowired
+	Transactions transactions;
 
 	static private Logger logger = LoggerFactory.getLogger(DemoApplication.class);
-
-	private Transactions getTransactions() {
-		if (transactions == null) {
-			transactions = Transactions.create(cluster);//template.getCouchbaseCluster());
-		}
-		return transactions;
-	}
 
 	@RequestMapping("/name/{name}")
 	public List<Airport> findByName(@PathVariable("name") String name) {
@@ -116,11 +110,11 @@ public class DemoApplication {
 
 	@RequestMapping(value = "txn/{id1}/{id2}")
 	public List<Airport> update(@PathVariable("id1") String id1, @PathVariable("id2") String id2) {
-		// lets swap the citys of 2 airports, in a transaction
+		// lets swap the cities of 2 airports, in a transaction
 		// and return the final results.
-		List<Airport> returnVal = new ArrayList<Airport>();
+		List<Airport> returnVal = Collections.synchronizedList(new ArrayList<Airport>());
 		try {
-			getTransactions().run( (ctx) -> {
+			transactions.run( (ctx) -> {
 
 				TransactionGetResult a1Result = ctx.get(collection, id1);
 				TransactionGetResult a2Result = ctx.get(collection, id2);
@@ -149,7 +143,7 @@ public class DemoApplication {
 			for(LogDefer err: e.result().log().logs()) {
 				logger.error(err.toString());
 			}
-			return Arrays.asList();
+			return returnVal;
 		}
 	}
 
